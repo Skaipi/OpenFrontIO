@@ -2,6 +2,7 @@ import { EventBus, GameEvent } from "../core/EventBus";
 import { UnitType } from "../core/game/Game";
 import { UnitView } from "../core/game/GameView";
 import { UserSettings } from "../core/game/UserSettings";
+import { ExtInputHandler } from "./extensions/ExtInputHandlers";
 import { ReplaySpeedMultiplier } from "./utilities/ReplaySpeedMultiplier";
 
 export class MouseUpEvent implements GameEvent {
@@ -99,6 +100,10 @@ export class CenterCameraEvent implements GameEvent {
 }
 
 export class InputHandler {
+  // Custom Extensions
+  private extInput: ExtInputHandler;
+  // End of Custom Extensions
+
   private lastPointerX: number = 0;
   private lastPointerY: number = 0;
 
@@ -127,18 +132,19 @@ export class InputHandler {
     private eventBus: EventBus,
   ) {}
 
-  initialize() {
+  initialize(extInputHandler: ExtInputHandler) {
+    this.extInput = extInputHandler;
     this.keybinds = {
       toggleView: "Space",
       centerCamera: "KeyC",
-      moveUp: "KeyW",
-      moveDown: "KeyS",
-      moveLeft: "KeyA",
-      moveRight: "KeyD",
-      zoomOut: "KeyQ",
-      zoomIn: "KeyE",
-      attackRatioDown: "Digit1",
-      attackRatioUp: "Digit2",
+      moveUp: "NONE",
+      moveDown: "NONE",
+      moveLeft: "NONE",
+      moveRight: "NONE",
+      zoomOut: "NONE",
+      zoomIn: "NONE",
+      attackRatioDown: "NONE",
+      attackRatioUp: "NONE",
       boatAttack: "KeyB",
       groundAttack: "KeyG",
       modifierKey: "ControlLeft",
@@ -255,6 +261,8 @@ export class InputHandler {
       ) {
         this.activeKeys.add(e.code);
       }
+
+      extInputHandler.handleKeyDown(e);
     });
     window.addEventListener("keyup", (e) => {
       if (e.code === this.keybinds.toggleView) {
@@ -293,6 +301,7 @@ export class InputHandler {
         this.eventBus.emit(new CenterCameraEvent());
       }
 
+      this.extInput.handleKeyUp(e);
       this.activeKeys.delete(e.code);
     });
   }
@@ -370,6 +379,8 @@ export class InputHandler {
   }
 
   private onPointerMove(event: PointerEvent) {
+    this.extInput.handlePointerMove(event); // Handle extension before early exit
+
     if (event.button > 0) {
       return;
     }
