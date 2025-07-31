@@ -41,6 +41,7 @@ import {
   Transport,
 } from "./Transport";
 import { createCanvas } from "./Utils";
+import { ExtInputHandler } from "./extensions/ExtInputHandlers";
 import { createRenderer, GameRenderer } from "./graphics/GameRenderer";
 
 export interface LobbyConfig {
@@ -169,6 +170,7 @@ async function createClientGame(
     eventBus,
     gameRenderer,
     new InputHandler(canvas, eventBus),
+    new ExtInputHandler(canvas, eventBus, gameView),
     transport,
     worker,
     gameView,
@@ -192,6 +194,7 @@ export class ClientGameRunner {
     private eventBus: EventBus,
     private renderer: GameRenderer,
     private input: InputHandler,
+    private extInput: ExtInputHandler,
     private transport: Transport,
     private worker: WorkerClient,
     private gameView: GameView,
@@ -252,7 +255,8 @@ export class ClientGameRunner {
     );
 
     this.renderer.initialize();
-    this.input.initialize();
+    this.extInput.initialize(this.renderer);
+    this.input.initialize(this.extInput);
     this.worker.start((gu: GameUpdateViewData | ErrorUpdate) => {
       if (this.lobby.gameStartInfo === undefined) {
         throw new Error("missing gameStartInfo");
