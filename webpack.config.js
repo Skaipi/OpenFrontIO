@@ -1,6 +1,7 @@
 import { execSync } from "child_process";
 import CopyPlugin from "copy-webpack-plugin";
 import ESLintPlugin from "eslint-webpack-plugin";
+import express from "express";
 import HtmlWebpackPlugin from "html-webpack-plugin";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -8,6 +9,8 @@ import webpack from "webpack";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const cfState = { cookie: "", ua: "" };
+const workers = [...Array(100)].map((_, i) => `/w${i}`);
 
 const gitCommit =
   process.env.GIT_COMMIT ?? execSync("git rev-parse HEAD").toString().trim();
@@ -170,64 +173,63 @@ export default async (env, argv) => {
           historyApiFallback: true,
           compress: true,
           port: 9000,
+          setupMiddlewares: (middlewares, devServer) => {
+            const app = devServer.app;
+
+            // CORS so you can post from a bookmarklet
+            app.use((req, res, next) => {
+              res.setHeader("Access-Control-Allow-Origin", "*");
+              res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+              res.setHeader("Access-Control-Allow-Headers", "content-type");
+              if (req.method === "OPTIONS") return res.end();
+              next();
+            });
+
+            app.use(express.json());
+
+            app.post("/__dev/set-cf", (req, res) => {
+              const { cookie, ua } = req.body ?? {};
+              if (typeof cookie === "string") cfState.cookie = cookie;
+              if (typeof ua === "string") cfState.ua = ua;
+              res.json({
+                ok: true,
+                cookieSet: !!cfState.cookie,
+                uaSet: !!cfState.ua,
+              });
+            });
+
+            app.get("/__dev/get-cf", (_req, res) => res.json(cfState));
+
+            return middlewares;
+          },
           proxy: [
-            // WebSocket proxies
             {
-              context: ["/socket"],
-              target: "ws://localhost:3000",
+              context: ["/socket", ...workers],
+              target: "wss://openfront.io",
               ws: true,
-              changeOrigin: true,
+              secure: true,
+              changeOrigin: true, // sets Host: openfront.io for the upstream hop
               logLevel: "debug",
-            },
-            // Worker WebSocket proxies - using direct paths without /socket suffix
-            {
-              context: ["/w0"],
-              target: "ws://localhost:3001",
-              ws: true,
-              secure: false,
-              changeOrigin: true,
-              logLevel: "debug",
-            },
-            {
-              context: ["/w1"],
-              target: "ws://localhost:3002",
-              ws: true,
-              secure: false,
-              changeOrigin: true,
-              logLevel: "debug",
-            },
-            {
-              context: ["/w2"],
-              target: "ws://localhost:3003",
-              ws: true,
-              secure: false,
-              changeOrigin: true,
-              logLevel: "debug",
-            },
-            // Worker proxies for HTTP requests
-            {
-              context: ["/w0"],
-              target: "http://localhost:3001",
-              pathRewrite: { "^/w0": "" },
-              secure: false,
-              changeOrigin: true,
-              logLevel: "debug",
-            },
-            {
-              context: ["/w1"],
-              target: "http://localhost:3002",
-              pathRewrite: { "^/w1": "" },
-              secure: false,
-              changeOrigin: true,
-              logLevel: "debug",
-            },
-            {
-              context: ["/w2"],
-              target: "http://localhost:3003",
-              pathRewrite: { "^/w2": "" },
-              secure: false,
-              changeOrigin: true,
-              logLevel: "debug",
+
+              // Ensure the WS handshake looks like a real browser visiting openfront.io
+              onProxyReqWs(proxyReq, req, socket, options, head) {
+                proxyReq.setHeader("Origin", "https://openfront.io");
+                const h = req.headers;
+                [
+                  "user-agent",
+                  "accept-language",
+                  "sec-ch-ua",
+                  "sec-ch-ua-mobile",
+                  "sec-ch-ua-platform",
+                  "sec-websocket-extensions",
+                  "sec-websocket-key",
+                  "sec-websocket-version",
+                  "upgrade",
+                  "connection",
+                ].forEach((k) => {
+                  if (h[k]) proxyReq.setHeader(k, h[k]);
+                });
+              },
             },
             // Original API endpoints
             {
@@ -243,9 +245,49 @@ export default async (env, argv) => {
                 "/api/auth/discord",
                 "/api/kick_player",
               ],
-              target: "http://localhost:3000",
-              secure: false,
+              target: "https://openfront.io",
+              secure: true,
               changeOrigin: true,
+              cookieDomainRewrite: "localhost",
+              logLevel: "debug",
+
+              onProxyReq(proxyReq, req) {
+                // Present as if the page is on openfront.io
+                proxyReq.setHeader("Origin", "https://openfront.io");
+                proxyReq.setHeader("Referer", "https://openfront.io/");
+
+                // Use a real-browser UA and forward browser-y headers if the client sent them
+                const h = req.headers;
+                const pass = [
+                  "user-agent",
+                  "accept",
+                  "accept-language",
+                  "sec-ch-ua",
+                  "sec-ch-ua-mobile",
+                  "sec-ch-ua-platform",
+                  "sec-fetch-site",
+                  "sec-fetch-mode",
+                  "sec-fetch-dest",
+                  "sec-fetch-user",
+                ];
+                pass.forEach((k) => {
+                  if (h[k]) proxyReq.setHeader(k, h[k]);
+                });
+                if (cfState.ua) proxyReq.setHeader("User-Agent", cfState.ua);
+
+                // **Key bit**: send Cloudflare clearance on the upstream hop
+                if (cfState.cookie)
+                  proxyReq.setHeader("Cookie", cfState.cookie);
+              },
+
+              onProxyRes(proxyRes) {
+                const sc = proxyRes.headers["set-cookie"];
+                if (Array.isArray(sc)) {
+                  proxyRes.headers["set-cookie"] = sc.map((c) =>
+                    c.replace(/; *Secure/gi, ""),
+                  );
+                }
+              },
             },
           ],
         },
