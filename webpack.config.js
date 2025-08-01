@@ -169,7 +169,7 @@ export default async (env, argv) => {
           },
           historyApiFallback: true,
           compress: true,
-          port: 9000,
+          port: 80, // Overcome cloudflare errors with CORS to default http port
           setupMiddlewares: (middlewares, devServer) => {
             const app = devServer.app;
 
@@ -230,20 +230,15 @@ export default async (env, argv) => {
             },
             // Original API endpoints
             {
-              context: [
-                "/api/env",
-                "/api/game",
-                "/api/public_lobbies",
-                "/api/join_game",
-                "/api/start_game",
-                "/api/create_game",
-                "/api/archive_singleplayer_game",
-                "/api/auth/callback",
-                "/api/auth/discord",
-                "/api/kick_player",
-              ],
+              context: (p) => {
+                if (p.startsWith("/api") || p.startsWith("/w")) return true;
+              },
               target: "https://openfront.io",
               secure: true,
+              router: (req) =>
+                req.headers.upgrade === "websocket"
+                  ? "wss://openfront.io"
+                  : "https://openfront.io",
               changeOrigin: true,
               cookieDomainRewrite: "localhost",
               logLevel: "debug",
