@@ -6,6 +6,7 @@ import { GameUpdateType } from "../../../core/game/GameUpdates";
 import { GameView, UnitView } from "../../../core/game/GameView";
 import { UserSettings } from "../../../core/game/UserSettings";
 import { UnitSelectionEvent } from "../../InputHandler";
+import { NukePreviewEvent } from "../../extensions/ExtInputHandlers";
 import { ProgressBar } from "../ProgressBar";
 import { TransformHandler } from "../TransformHandler";
 import { Layer } from "./Layer";
@@ -45,6 +46,12 @@ export class UILayer implements Layer {
     size: number;
   } | null = null;
 
+  private lastNukePreview: {
+    x: number;
+    y: number;
+    radius: number;
+  } | null = null;
+
   // Visual settings for selection
   private readonly SELECTION_BOX_SIZE = 6; // Size of the selection box (should be larger than the warship)
 
@@ -81,6 +88,7 @@ export class UILayer implements Layer {
 
   init() {
     this.eventBus.on(UnitSelectionEvent, (e) => this.onUnitSelection(e));
+    this.eventBus.on(NukePreviewEvent, (e) => this.onNukePreview(e));
     this.redraw();
   }
 
@@ -171,6 +179,13 @@ export class UILayer implements Layer {
     }
   }
 
+  private onNukePreview(event: NukePreviewEvent) {
+    this.clearLastNukePreview();
+    if (event.isActive) {
+      this.drawNukePreview(event);
+    }
+  }
+
   /**
    * Clear the selection box at a specific position
    */
@@ -256,6 +271,37 @@ export class UILayer implements Layer {
       x: centerX,
       y: centerY,
       size: selectionSize,
+    };
+  }
+
+  public drawNukePreview(event: NukePreviewEvent) {
+    if (!this.context) {
+      return;
+    }
+
+    const magnitude = this.game.config().nukeMagnitudes(event.nukeType);
+
+    this.context.beginPath();
+    this.context.arc(event.x, event.y, magnitude.inner, 0, Math.PI * 2);
+    this.context.arc(event.x, event.y, magnitude.outer, 0, Math.PI * 2);
+    this.context.strokeStyle = "rgba(255, 255, 0, 1)";
+    this.context.lineWidth = 0.5;
+    this.context.stroke();
+    this.context.fillStyle = "rgba(255, 255, 0, 0.5)";
+    this.context.fill();
+
+    this.context.beginPath();
+    this.context.arc(event.x, event.y, magnitude.inner, 0, Math.PI * 2);
+    this.context.strokeStyle = "rgba(255, 0, 0, 1)";
+    this.context.lineWidth = 0.5;
+    this.context.stroke();
+    this.context.fillStyle = "rgba(255, 0, 0, 0.5)";
+    this.context.fill();
+
+    this.lastNukePreview = {
+      x: event.x,
+      y: event.y,
+      radius: magnitude.outer,
     };
   }
 
@@ -366,5 +412,19 @@ export class UILayer implements Layer {
   clearCell(x: number, y: number) {
     if (this.context === null) throw new Error("null context");
     this.context.clearRect(x, y, 1, 1);
+  }
+
+  clearLastNukePreview() {
+    if (this.context === null || this.lastNukePreview === null) {
+      return;
+    }
+    const { x, y, radius } = this.lastNukePreview;
+    // use 2.5 factor to avoid 1px artifacts due to floating point arithmetic
+    this.context.clearRect(
+      x - radius * 1.05,
+      y - radius * 1.05,
+      radius * 2.1,
+      radius * 2.1,
+    );
   }
 }

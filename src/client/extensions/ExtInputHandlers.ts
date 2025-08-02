@@ -1,13 +1,23 @@
-import { EventBus } from "../../core/EventBus";
+import { EventBus, GameEvent } from "../../core/EventBus";
 import { BuildableUnit, Cell, UnitType } from "../../core/game/Game";
 import { TileRef } from "../../core/game/GameMap";
 import { GameView } from "../../core/game/GameView";
+import { NukeType } from "../../core/StatsSchemas";
 import { GameRenderer } from "../graphics/GameRenderer";
 import { BuildItemDisplay, buildTable } from "../graphics/layers/BuildMenu";
 import {
   BuildUnitIntentEvent,
   SendUpgradeStructureIntentEvent,
 } from "../Transport";
+
+export class NukePreviewEvent implements GameEvent {
+  constructor(
+    public x: number,
+    public y: number,
+    public nukeType: NukeType,
+    public isActive: boolean,
+  ) {}
+}
 
 export class ExtInputHandler {
   private cell: Cell;
@@ -75,9 +85,58 @@ export class ExtInputHandler {
         tile,
       );
     }
+
+    if (e.code === this.keybinds.nukeToggle) {
+      this.eventBus.emit(
+        new NukePreviewEvent(
+          this.cell.x,
+          this.cell.y,
+          UnitType.AtomBomb,
+          false,
+        ),
+      );
+      this.sendBuildOrUpgrade(
+        playerActions.buildableUnits.find((b) => b.type === UnitType.AtomBomb),
+        tile,
+      );
+    }
+
+    if (e.code === this.keybinds.hydrogenToggle) {
+      this.eventBus.emit(
+        new NukePreviewEvent(
+          this.cell.x,
+          this.cell.y,
+          UnitType.HydrogenBomb,
+          false,
+        ),
+      );
+      this.sendBuildOrUpgrade(
+        playerActions.buildableUnits.find(
+          (b) => b.type === UnitType.HydrogenBomb,
+        ),
+        tile,
+      );
+    }
   }
 
-  public handleKeyDown(e: KeyboardEvent) {}
+  public handleKeyDown(e: KeyboardEvent) {
+    if (e.code === this.keybinds.nukeToggle) {
+      this.eventBus.emit(
+        new NukePreviewEvent(this.cell.x, this.cell.y, UnitType.AtomBomb, true),
+      );
+    }
+
+    if (e.code === this.keybinds.hydrogenToggle) {
+      this.eventBus.emit(
+        new NukePreviewEvent(
+          this.cell.x,
+          this.cell.y,
+          UnitType.HydrogenBomb,
+          true,
+        ),
+      );
+    }
+  }
 
   public handlePointerMove(e: PointerEvent) {
     this.cell = this.renderer.transformHandler.screenToWorldCoordinates(
